@@ -1,0 +1,72 @@
+import express from 'express';
+import cors from 'cors';
+import { config, validateConfig } from './config';
+import searchRoutes from './routes/search.routes';
+
+const app = express();
+
+// Validate configuration
+validateConfig();
+
+// Middleware
+app.use(cors({
+  origin: config.server.frontendUrl,
+  credentials: true,
+}));
+
+app.use(express.json());
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    environment: config.server.nodeEnv,
+  });
+});
+
+// Routes
+app.use('/', searchRoutes);
+
+// Error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: config.server.nodeEnv === 'development' ? err.message : undefined,
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+// Start server
+const PORT = config.server.port;
+
+app.listen(PORT, () => {
+  console.log(`
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║   Agentic Search Demo API - Fashion Search on Google Cloud    ║
+║                                                                ║
+╠════════════════════════════════════════════════════════════════╣
+║                                                                ║
+║   Server running on: http://localhost:${PORT}                   ║
+║   Environment: ${config.server.nodeEnv.padEnd(51)}║
+║   GCP Project: ${(config.gcp.projectId || 'Not configured').padEnd(51)}║
+║   Region: ${config.gcp.region.padEnd(57)}║
+║   Model: ${config.gcp.vertexModelName.padEnd(58)}║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+  `);
+});
+
+export default app;
