@@ -6,6 +6,7 @@ import {
   buildClarifierPrompt,
   buildExplainerPrompt,
   buildExplainResultsPrompt,
+  buildOutfitComposerPrompt,
 } from '../agents/prompts';
 import {
   IntentRequest,
@@ -97,13 +98,13 @@ router.post('/search-results', async (req: Request, res: Response) => {
 // POST /clarify-goal
 router.post('/clarify-goal', async (req: Request, res: Response) => {
   try {
-    const { session_id, query, entities }: ClarifyGoalRequest = req.body;
+    const { session_id, query, entities, conversation_history }: ClarifyGoalRequest = req.body;
 
     if (!session_id || !query || !entities) {
       return res.status(400).json({ error: 'session_id, query, and entities are required' });
     }
 
-    const prompt = buildClarifierPrompt(query, entities);
+    const prompt = buildClarifierPrompt(query, entities, conversation_history);
     const response = await callGeminiJSON<ClarifyGoalResponse>(prompt);
 
     res.json(response);
@@ -122,132 +123,77 @@ router.post('/compose-outfits', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'session_id, query, and entities are required' });
     }
 
-    // Extract participants and create outfit slots
+    // Extract context from entities and choice
     const participants = entities.participants || 'self';
-    const palette = choice.palette || entities.palette || 'neutral tones';
     const occasion = entities.occasion || 'casual outing';
+    const selectedStyle = choice.style || choice.palette || 'contemporary casual';
 
-    // Define outfit slots based on participants
-    // For simplicity, we'll create 2-3 looks
+    console.log(`Composing outfits for: ${occasion}, style: ${selectedStyle}`);
+
+    // Use AI to intelligently compose outfits based on the selected style
+    const composerPrompt = buildOutfitComposerPrompt(
+      query,
+      occasion,
+      selectedStyle,
+      participants,
+      entities
+    );
+
+    interface OutfitItem {
+      for: string;
+      search_query: string;
+      filters: SearchFilters;
+    }
+
+    interface ComposedLook {
+      name: string;
+      items: OutfitItem[];
+    }
+
+    const aiComposition = await callGeminiJSON<{ looks: ComposedLook[] }>(composerPrompt);
+
+    // Now search for actual products based on AI's composition
     const looks: Look[] = [];
 
-    // Look 1: Smart Evening
-    const look1Items: Product[] = [];
+    for (const aiLook of aiComposition.looks) {
+      const lookItems: Product[] = [];
 
-    // Search for man's items
-    const manTop = await searchProducts('shirt', {
-      color: palette.includes('blue') ? 'blue' : 'white',
-      fit: 'regular',
-      style: 'formal',
-    }, 1);
-    if (manTop.length > 0) {
-      look1Items.push({
-        ...manTop[0],
-        for: 'man',
-      } as any);
+      // Search for each item in this look
+      for (const item of aiLook.items) {
+        const products = await searchProducts(item.search_query, item.filters, 1);
+        if (products.length > 0) {
+          lookItems.push({
+            ...products[0],
+            for: item.for,
+          } as any);
+        }
+      }
+
+      if (lookItems.length > 0) {
+        const totalPrice = lookItems.reduce((sum, item) => sum + item.price, 0);
+
+        // Get AI explanation for this look
+        const lookSummary = `A ${selectedStyle} outfit for ${occasion} with items: ${lookItems.map(i => i.title).join(', ')}`;
+        const explanation = await callGeminiJSON<{ reason: string }>(
+          buildExplainerPrompt(query, lookSummary)
+        );
+
+        looks.push({
+          name: aiLook.name,
+          total_price: totalPrice,
+          items: lookItems.map(item => ({
+            for: (item as any).for,
+            product_id: item.product_id,
+            title: item.title,
+            price: item.price,
+            image_url: item.image_url,
+            brand: item.brand,
+            category: item.category,
+          })),
+          reason: explanation.reason,
+        });
+      }
     }
-
-    const manBottom = await searchProducts('trousers', {
-      color: 'navy',
-      fit: 'regular',
-      style: 'formal',
-    }, 1);
-    if (manBottom.length > 0) {
-      look1Items.push({
-        ...manBottom[0],
-        for: 'man',
-      } as any);
-    }
-
-    // Search for woman's items
-    const womanOutfit = await searchProducts('kurti', {
-      color: palette.includes('beige') ? 'beige' : 'white',
-      fit: 'regular',
-    }, 1);
-    if (womanOutfit.length > 0) {
-      look1Items.push({
-        ...womanOutfit[0],
-        for: 'woman',
-      } as any);
-    }
-
-    const totalPrice1 = look1Items.reduce((sum, item) => sum + item.price, 0);
-
-    // Get explanation for this look
-    const look1Summary = `A ${palette} outfit for ${occasion} with items: ${look1Items.map(i => i.title).join(', ')}`;
-    const explanation1 = await callGeminiJSON<{ reason: string }>(buildExplainerPrompt(query, look1Summary));
-
-    looks.push({
-      name: 'Smart Evening',
-      total_price: totalPrice1,
-      items: look1Items.map(item => ({
-        for: (item as any).for,
-        product_id: item.product_id,
-        title: item.title,
-        price: item.price,
-        image_url: item.image_url,
-        brand: item.brand,
-        category: item.category,
-      })),
-      reason: explanation1.reason,
-    });
-
-    // Look 2: Easy Day Out (more casual)
-    const look2Items: Product[] = [];
-
-    const manCasualTop = await searchProducts('shirt', {
-      color: 'white',
-      fit: 'regular',
-      style: 'casual',
-    }, 1);
-    if (manCasualTop.length > 0) {
-      look2Items.push({
-        ...manCasualTop[0],
-        for: 'man',
-      } as any);
-    }
-
-    const manCasualBottom = await searchProducts('chinos', {
-      color: 'grey',
-      fit: 'comfort',
-    }, 1);
-    if (manCasualBottom.length > 0) {
-      look2Items.push({
-        ...manCasualBottom[0],
-        for: 'man',
-      } as any);
-    }
-
-    const womanCasualOutfit = await searchProducts('palazzo', {
-      color: 'olive',
-      fit: 'regular',
-    }, 1);
-    if (womanCasualOutfit.length > 0) {
-      look2Items.push({
-        ...womanCasualOutfit[0],
-        for: 'woman',
-      } as any);
-    }
-
-    const totalPrice2 = look2Items.reduce((sum, item) => sum + item.price, 0);
-
-    const look2Summary = `A relaxed outfit for ${occasion} with items: ${look2Items.map(i => i.title).join(', ')}`;
-    const explanation2 = await callGeminiJSON<{ reason: string }>(buildExplainerPrompt(query, look2Summary));
-
-    looks.push({
-      name: 'Easy Day Out',
-      total_price: totalPrice2,
-      items: look2Items.map(item => ({
-        for: (item as any).for,
-        product_id: item.product_id,
-        title: item.title,
-        price: item.price,
-        image_url: item.image_url,
-        brand: item.brand,
-        category: item.category,
-      })),
-      reason: explanation2.reason,
-    });
 
     const response: ComposeOutfitsResponse = {
       looks,

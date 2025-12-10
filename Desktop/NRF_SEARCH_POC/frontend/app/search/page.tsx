@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence, useScroll } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import SearchBar from '@/components/SearchBar';
 import Carousel from '@/components/Carousel';
 import CategoryTiles from '@/components/CategoryTiles';
@@ -47,14 +47,12 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [isCompactMode, setIsCompactMode] = useState(false);
+  const [conversationHistory, setConversationHistory] = useState<string>('');
 
   // Home content
   const [dealsProducts, setDealsProducts] = useState<Product[]>([]);
   const [topSellingProducts, setTopSellingProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-
-  // Scroll tracking for hybrid search bar
-  const { scrollY } = useScroll();
 
   useEffect(() => {
     const id = sessionStorage.getItem('sessionId') || generateSessionId();
@@ -65,13 +63,32 @@ export default function SearchPage() {
     logAnalyticsEvent(id, 'page_view', { route: '/search' });
   }, []);
 
-  // Track scroll for compact mode transition
+  // Simple scroll-based sticky header - pin when scrolled past threshold
   useEffect(() => {
-    const unsubscribe = scrollY.on('change', (latest) => {
-      setIsCompactMode(latest > 50 || intentMode !== 'NONE');
-    });
-    return () => unsubscribe();
-  }, [scrollY, intentMode]);
+    let ticking = false;
+    let lastCompactState = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const scrollPosition = window.scrollY;
+          const shouldBeCompact = scrollPosition > 100;
+
+          // Only update state if it actually changed
+          if (shouldBeCompact !== lastCompactState) {
+            lastCompactState = shouldBeCompact;
+            setIsCompactMode(shouldBeCompact);
+          }
+
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const loadHomeContent = async () => {
     try {
@@ -136,6 +153,7 @@ export default function SearchPage() {
 
   const handleGoalIntent = async (q: string, ents: Entities) => {
     setShowChat(true);
+    setConversationHistory(''); // Reset conversation history for new search
 
     // Add system greeting
     const greetingMessage: ChatMessage = {
@@ -145,9 +163,9 @@ export default function SearchPage() {
     };
     setChatMessages([greetingMessage]);
 
-    // Get clarifying question
+    // Get first clarifying question (no conversation history yet)
     try {
-      const clarificationResponse = await clarifyGoal(sessionId, q, ents);
+      const clarificationResponse = await clarifyGoal(sessionId, q, ents, '');
 
       const questionMessage: ChatMessage = {
         id: '2',
@@ -166,23 +184,45 @@ export default function SearchPage() {
   };
 
   const handleChipSelect = async (category: string, value: string) => {
-    const newSelectedChips = { ...selectedChips, [category]: value };
+    // Toggle behavior: if clicking the same chip, deselect it
+    const isCurrentlySelected = selectedChips[category] === value;
+
+    const newSelectedChips = { ...selectedChips };
+    if (isCurrentlySelected) {
+      // Deselect - remove this category from selected chips
+      delete newSelectedChips[category];
+    } else {
+      // Select - set new value for this category
+      newSelectedChips[category] = value;
+    }
     setSelectedChips(newSelectedChips);
 
     // Build filters from selected chips
     const newFilters: SearchFilters = { ...filters };
 
-    if (category === 'style') newFilters.style = value.toLowerCase();
-    if (category === 'color') newFilters.color = value.toLowerCase();
-    if (category === 'fit') newFilters.fit = value.toLowerCase();
+    // Clear previous filter for this category
+    if (category === 'style') delete newFilters.style;
+    if (category === 'color') delete newFilters.color;
+    if (category === 'fit') delete newFilters.fit;
     if (category === 'price') {
-      if (value.includes('Under')) {
-        newFilters.price_max = 2000;
-      } else if (value.includes('to')) {
-        newFilters.price_min = 2000;
-        newFilters.price_max = 4000;
-      } else {
-        newFilters.price_min = 4000;
+      delete newFilters.price_min;
+      delete newFilters.price_max;
+    }
+
+    // Only apply filter if chip is selected (not deselected)
+    if (!isCurrentlySelected) {
+      if (category === 'style') newFilters.style = value.toLowerCase();
+      if (category === 'color') newFilters.color = value.toLowerCase();
+      if (category === 'fit') newFilters.fit = value.toLowerCase();
+      if (category === 'price') {
+        if (value.includes('Under')) {
+          newFilters.price_max = 2000;
+        } else if (value.includes('to')) {
+          newFilters.price_min = 2000;
+          newFilters.price_max = 4000;
+        } else {
+          newFilters.price_min = 4000;
+        }
       }
     }
 
@@ -202,32 +242,53 @@ export default function SearchPage() {
     };
     setChatMessages((prev) => [...prev, userMessage]);
 
-    // Add mock follow-up message for demo
-    setTimeout(() => {
-      const followUpMessage: ChatMessage = {
-        id: `assistant-followup-${Date.now()}`,
-        role: 'assistant',
-        content: `Great choice! I'll curate some looks with ${option.toLowerCase()} tones that would work perfectly for your occasion.`,
-      };
-      setChatMessages((prev) => [...prev, followUpMessage]);
-    }, 500);
+    // Build conversation history from all messages
+    const history = [...chatMessages, userMessage]
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => `${m.role}: ${m.content}`)
+      .join('\n');
 
-    // Compose outfits based on choice
+    setConversationHistory(history);
+
     try {
-      setStatusMessage('Curating your looks...');
-      const choice = { palette: option };
-      const outfitsResponse = await composeOutfits(sessionId, query, entities, choice);
-      setLooks(outfitsResponse.looks);
+      // Call clarify-goal with updated conversation history
+      const clarificationResponse = await clarifyGoal(sessionId, query, entities, history);
 
-      const assistantMessage: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: 'Here are a few looks I curated for you. You can see them below.',
-      };
-      setChatMessages((prev) => [...prev, assistantMessage]);
-      setStatusMessage('');
+      if (clarificationResponse.gathering_info) {
+        // Still gathering information - show next question
+        const questionMessage: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: clarificationResponse.question,
+          options: clarificationResponse.options,
+        };
+        setChatMessages((prev) => [...prev, questionMessage]);
+      } else if (clarificationResponse.ready_to_compose) {
+        // All information gathered - user just selected a final style option
+        // Add acknowledgment message
+        const ackMessage: ChatMessage = {
+          id: `assistant-ack-${Date.now()}`,
+          role: 'assistant',
+          content: `Perfect! I'll curate some looks in the ${option.toLowerCase()} style that would work beautifully for your occasion.`,
+        };
+        setChatMessages((prev) => [...prev, ackMessage]);
+
+        // Compose outfits based on selected style
+        setStatusMessage('Curating your looks...');
+        const choice = { style: option };
+        const outfitsResponse = await composeOutfits(sessionId, query, entities, choice);
+        setLooks(outfitsResponse.looks);
+
+        const assistantMessage: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: 'Here are a few looks I curated for you. You can see them below.',
+        };
+        setChatMessages((prev) => [...prev, assistantMessage]);
+        setStatusMessage('');
+      }
     } catch (error) {
-      console.error('Error composing outfits:', error);
+      console.error('Error in chat interaction:', error);
       setStatusMessage('');
     }
   };
@@ -356,18 +417,38 @@ export default function SearchPage() {
           className="sticky top-0 z-40 border-b border-gray-200 bg-white shadow-sm"
         >
           <div className="container mx-auto px-4 py-3">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-600">
-                  <span className="text-lg font-bold text-white">D</span>
+            <div className="flex flex-col gap-3">
+              {/* Search bar row */}
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-teal-600">
+                    <span className="text-lg font-bold text-white">D</span>
+                  </div>
+                  <span className="hidden text-lg font-semibold text-gray-900 sm:inline">
+                    Demo Retailer
+                  </span>
                 </div>
-                <span className="hidden text-lg font-semibold text-gray-900 sm:inline">
-                  Demo Retailer
-                </span>
+                <div className="flex-1">
+                  <SearchBar onSearch={handleSearch} initialValue={query} />
+                </div>
               </div>
-              <div className="flex-1">
-                <SearchBar onSearch={handleSearch} initialValue={query} />
-              </div>
+
+              {/* Refinement chips row - Show only for AMBIGUOUS mode */}
+              {intentMode === 'AMBIGUOUS' && Object.keys(chips).length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="border-t border-gray-100 pt-3"
+                >
+                  <RefinementChips
+                    chips={chips}
+                    selectedChips={selectedChips}
+                    onChipSelect={handleChipSelect}
+                  />
+                </motion.div>
+              )}
             </div>
           </div>
         </motion.div>

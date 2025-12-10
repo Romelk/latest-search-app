@@ -38,12 +38,23 @@ export async function searchResults(
 export async function clarifyGoal(
   sessionId: string,
   query: string,
-  entities: Entities
-): Promise<{ question: string; options: string[] }> {
+  entities: Entities,
+  conversationHistory?: string
+): Promise<{
+  question: string;
+  options: string[];
+  gathering_info?: boolean;
+  ready_to_compose?: boolean;
+}> {
   const response = await fetch(`${API_URL}/clarify-goal`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_id: sessionId, query, entities }),
+    body: JSON.stringify({
+      session_id: sessionId,
+      query,
+      entities,
+      conversation_history: conversationHistory
+    }),
   });
 
   if (!response.ok) {

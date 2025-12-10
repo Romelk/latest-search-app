@@ -54,6 +54,8 @@ export interface SearchResultsResponse {
 export interface ClarifyGoalResponse {
   question: string;
   options: string[];
+  gathering_info?: boolean;
+  ready_to_compose?: boolean;
 }
 
 export interface LookItem {
@@ -116,6 +118,7 @@ export interface ClarifyGoalRequest {
   session_id: string;
   query: string;
   entities: Entities;
+  conversation_history?: string;
 }
 
 export interface ComposeOutfitsRequest {
