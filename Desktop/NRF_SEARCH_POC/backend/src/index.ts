@@ -48,6 +48,19 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
+// Global error handlers to prevent crashes
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  console.error('❌ Unhandled Promise Rejection:', reason);
+  console.error('Promise:', promise);
+  // Don't exit the process - keep the server running
+});
+
+process.on('uncaughtException', (error: Error) => {
+  console.error('❌ Uncaught Exception:', error);
+  // Log but don't exit - this allows the server to continue running
+  // In production, you might want to restart the process, but for demos we keep it alive
+});
+
 // Start server
 const PORT = config.server.port;
 

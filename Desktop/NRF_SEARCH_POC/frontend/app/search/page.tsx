@@ -93,23 +93,6 @@ export default function SearchPage() {
     setLoading(true);
     setStatusMessage('Understanding your request...');
 
-    // Always show chat panel with mock conversation for demo
-    setShowChat(true);
-    const mockMessages: ChatMessage[] = [
-      {
-        id: '1',
-        role: 'system',
-        content: 'Hi, I see you are looking for coordinated outfits. I can help you with it. I just have a few questions to curate your search better.',
-      },
-      {
-        id: '2',
-        role: 'assistant',
-        content: 'Which palette feels right for you?',
-        options: ['Olive and ivory', 'Blue and beige', 'Soft grey tones', 'Warm earth tones', 'Classic black and white'],
-      },
-    ];
-    setChatMessages(mockMessages);
-
     try {
       // Detect intent
       const intentResponse = await detectIntent(sessionId, searchQuery);
@@ -313,35 +296,53 @@ export default function SearchPage() {
                 </div>
               </motion.div>
 
-              {/* Example Searches */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.6, delay: 0.4 }}
-                className="space-y-2"
-              >
-                <p className="text-sm font-medium text-gray-500">Popular searches:</p>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => handleSearch('blue formal shirt size 42')}
-                    className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 transition-all hover:bg-teal-50 hover:text-teal-700 hover:ring-teal-200"
-                  >
-                    Blue formal shirt
-                  </button>
-                  <button
-                    onClick={() => handleSearch('shirt')}
-                    className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 transition-all hover:bg-teal-50 hover:text-teal-700 hover:ring-teal-200"
-                  >
-                    Shirt
-                  </button>
-                  <button
-                    onClick={() => handleSearch('I need an outfit for my daughters annual day')}
-                    className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 transition-all hover:bg-teal-50 hover:text-teal-700 hover:ring-teal-200"
-                  >
-                    Outfit for a special occasion
-                  </button>
-                </div>
-              </motion.div>
+              {/* Example Searches - Show only when NOT in AMBIGUOUS mode */}
+              {intentMode !== 'AMBIGUOUS' && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.6, delay: 0.4 }}
+                  className="space-y-2"
+                >
+                  <p className="text-sm font-medium text-gray-500">Popular searches:</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => handleSearch('blue formal shirt size 42')}
+                      className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 transition-all hover:bg-teal-50 hover:text-teal-700 hover:ring-teal-200"
+                    >
+                      Blue formal shirt
+                    </button>
+                    <button
+                      onClick={() => handleSearch('shirt')}
+                      className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 transition-all hover:bg-teal-50 hover:text-teal-700 hover:ring-teal-200"
+                    >
+                      Shirt
+                    </button>
+                    <button
+                      onClick={() => handleSearch('I need an outfit for my daughters annual day')}
+                      className="inline-flex items-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-gray-200 transition-all hover:bg-teal-50 hover:text-teal-700 hover:ring-teal-200"
+                    >
+                      Outfit for a special occasion
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Refinement Chips - Show only for AMBIGUOUS mode */}
+              {intentMode === 'AMBIGUOUS' && Object.keys(chips).length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="space-y-2"
+                >
+                  <RefinementChips
+                    chips={chips}
+                    selectedChips={selectedChips}
+                    onChipSelect={handleChipSelect}
+                  />
+                </motion.div>
+              )}
             </div>
           </div>
         </motion.div>
@@ -406,15 +407,6 @@ export default function SearchPage() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
-              {/* AMBIGUOUS Mode: Refinement Chips */}
-              {intentMode === 'AMBIGUOUS' && Object.keys(chips).length > 0 && (
-                <RefinementChips
-                  chips={chips}
-                  selectedChips={selectedChips}
-                  onChipSelect={handleChipSelect}
-                />
-              )}
-
               {/* Filters Bar (for CLEAR and after chip selection in AMBIGUOUS) */}
               {(intentMode === 'CLEAR' || products.length > 0) && (
                 <FiltersBar filters={filters} onFilterChange={handleFilterChange} />

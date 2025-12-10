@@ -43,7 +43,15 @@ router.post('/search-intent', async (req: Request, res: Response) => {
     res.json(response);
   } catch (error) {
     console.error('Error in /search-intent:', error);
-    res.status(500).json({ error: 'Internal server error' });
+
+    // Fallback: Default to CLEAR intent if AI fails
+    console.log('⚠️  Falling back to CLEAR intent mode');
+    res.json({
+      mode: 'CLEAR',
+      entities: {},
+      chips: {},
+      confidence: 0.5,
+    } as IntentResponse);
   }
 });
 

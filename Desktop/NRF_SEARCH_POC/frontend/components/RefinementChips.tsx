@@ -14,14 +14,19 @@ export default function RefinementChips({
   onChipSelect,
 }: RefinementChipsProps) {
   return (
-    <div className="mb-6 rounded-lg border border-gray-200 bg-white p-6">
-      <h3 className="mb-4 text-lg font-semibold text-gray-900">
-        Help me narrow this down
-      </h3>
-      <div className="space-y-4">
+    <div className="space-y-3">
+      <p className="text-sm font-medium text-gray-500">Help me narrow this down:</p>
+
+      {/* Horizontal chip groups with inline category labels */}
+      <div className="flex flex-wrap items-center gap-4">
         {Object.entries(chips).map(([category, options]) => (
-          <div key={category}>
-            <p className="mb-2 text-sm font-medium capitalize text-gray-700">{category}</p>
+          <div key={category} className="flex items-center gap-2">
+            {/* Category label inline */}
+            <span className="text-sm font-medium capitalize text-gray-600">
+              {category}:
+            </span>
+
+            {/* Chips inline with category */}
             <div className="flex flex-wrap gap-2">
               {options.map((option) => {
                 const isSelected = selectedChips[category] === option;
@@ -29,11 +34,15 @@ export default function RefinementChips({
                   <button
                     key={option}
                     onClick={() => onChipSelect(category, option)}
-                    className={`rounded-full px-4 py-2 text-sm font-medium transition-all ${
-                      isSelected
-                        ? 'bg-teal-600 text-white shadow-md'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
+                    className={`
+                      rounded-lg px-4 py-2 text-sm font-medium
+                      shadow-sm ring-1 transition-all
+                      ${
+                        isSelected
+                          ? 'bg-teal-600 text-white ring-teal-600 shadow-md'
+                          : 'bg-white text-gray-700 ring-gray-200 hover:bg-teal-50 hover:text-teal-700 hover:ring-teal-200'
+                      }
+                    `}
                   >
                     {option}
                   </button>
