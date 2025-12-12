@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { config, validateConfig } from './config';
 import searchRoutes from './routes/search.routes';
+import toolkitRoutes from './routes/toolkit.routes';
 
 const app = express();
 
@@ -14,7 +15,9 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+// Increase body size limit for base64 image uploads (50MB)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Request logging
 app.use((req, res, next) => {
@@ -33,6 +36,7 @@ app.get('/health', (req, res) => {
 
 // Routes
 app.use('/', searchRoutes);
+app.use('/toolkit', toolkitRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -41,6 +41,17 @@ VALUES
   ('SKU009', 'Denim Jeans Blue', 'Levis', 3999.0, 'https://via.placeholder.com/300x400/4169E1/FFFFFF?text=Denim+Jeans', 'jeans', 'blue', '32', 'slim', ['casual'], 'casual', 'Classic blue denim jeans with slim fit'),
   ('SKU010', 'Red Running Shoes', 'Nike', 5499.0, 'https://via.placeholder.com/300x400/DC143C/FFFFFF?text=Running+Shoes', 'shoes', 'red', 'UK 9', 'regular', ['sports', 'casual'], 'sports', 'Comfortable red running shoes for active lifestyle');
 
+-- Extend products table with Myntra CSV fields
+-- Run this to add new columns for Myntra product data
+ALTER TABLE `fashion_catalog.products`
+ADD COLUMN IF NOT EXISTS rating FLOAT64,
+ADD COLUMN IF NOT EXISTS rating_count INT64,
+ADD COLUMN IF NOT EXISTS discount_percentage INT64,
+ADD COLUMN IF NOT EXISTS original_price FLOAT64,
+ADD COLUMN IF NOT EXISTS product_url STRING,
+ADD COLUMN IF NOT EXISTS image_urls ARRAY<STRING>,
+ADD COLUMN IF NOT EXISTS data_source STRING DEFAULT 'manual';
+
 -- Create analytics events table
 CREATE TABLE IF NOT EXISTS `fashion_catalog.analytics_events` (
   event_id STRING NOT NULL,
@@ -55,3 +66,42 @@ CREATE TABLE IF NOT EXISTS `fashion_catalog.analytics_events` (
 OPTIONS(
   description="Analytics events for tracking user interactions"
 );
+
+-- AI Fashion Toolkit Tables
+-- Cost tracking table for $100 budget enforcement
+CREATE TABLE IF NOT EXISTS `fashion_catalog.toolkit_usage` (
+  usage_id STRING NOT NULL,
+  session_id STRING NOT NULL,
+  timestamp TIMESTAMP NOT NULL,
+  tool_name STRING NOT NULL,
+  cost_usd FLOAT64 NOT NULL,
+  image_count INT64,
+  input_tokens INT64,
+  output_tokens INT64,
+  metadata JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+)
+OPTIONS(
+  description="Tracks AI toolkit usage and costs for rate limiting"
+);
+
+-- Style profiles table for personalized recommendations
+CREATE TABLE IF NOT EXISTS `fashion_catalog.style_profiles` (
+  profile_id STRING NOT NULL,
+  session_id STRING NOT NULL,
+  profile_data JSON NOT NULL,
+  image_hashes ARRAY<STRING>,
+  analysis_summary STRING,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP(),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP()
+)
+OPTIONS(
+  description="Stores user style profiles from multi-image analysis"
+);
+
+-- Create indexes for faster queries
+CREATE INDEX IF NOT EXISTS idx_toolkit_session
+ON `fashion_catalog.toolkit_usage`(session_id, timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_profile_session
+ON `fashion_catalog.style_profiles`(session_id);

@@ -2,6 +2,14 @@ import { Entities, Product, Look, SearchFilters } from '../types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
+export interface SearchFulfillment {
+  fulfillment_type: 'exact' | 'partial' | 'none';
+  matched_attributes: string[];
+  missing_attributes: string[];
+  user_message: string;
+  suggestion?: string;
+}
+
 export async function detectIntent(sessionId: string, query: string) {
   const response = await fetch(`${API_URL}/search-intent`, {
     method: 'POST',

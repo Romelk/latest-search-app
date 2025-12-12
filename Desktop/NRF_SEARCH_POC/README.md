@@ -1,6 +1,20 @@
-# Agentic Search Demo – Goal Based Fashion Search on Google Cloud
+# NRF Search POC with Dual AI Agents
 
-A production-quality, intelligent search application that understands user intent and provides personalized shopping experiences using Google Cloud's Vertex AI and BigQuery.
+AI-powered retail search platform featuring two specialized AI assistants working side-by-side to provide comprehensive fashion guidance and product discovery.
+
+## Dual Agent Architecture
+
+### GOAL Chat Agent (Right Side - Teal/Purple Theme)
+Helps users find coordinated outfits for specific occasions using Google Cloud Vertex AI (Gemini 1.5 Pro).
+- Asks clarifying questions about style preferences, colors, budget
+- Returns curated outfit "looks" with AI-generated explanations
+- Perfect for: "I need outfits for my daughter's annual day..."
+
+### Fashion Agent - Alex (Left Side - Orange/Pink Theme)
+Autonomous fashion stylist powered by Claude Sonnet 4.5 with visual-first responses.
+- Provides fashion trend insights and styling advice
+- Generates outfit visualizations and color palettes
+- Perfect for: "What are the current fashion trends?"
 
 ## Overview
 
@@ -32,40 +46,50 @@ This application demonstrates three distinct search modes:
 ## Project Structure
 
 ```
-.
-├── frontend/               # Next.js frontend application
+NRF_SEARCH_POC/
+├── frontend/                    # Next.js Frontend (Port 3000)
 │   ├── app/
-│   │   ├── page.tsx       # Landing page
-│   │   ├── search/
-│   │   │   └── page.tsx   # Main search page with all flows
-│   │   ├── layout.tsx
-│   │   └── globals.css
-│   ├── components/        # Reusable UI components
+│   │   ├── page.tsx            # Landing page
+│   │   └── search/page.tsx     # Main search interface with both agents
+│   ├── components/
+│   │   ├── ChatPanel.tsx       # GOAL chat interface (right side)
+│   │   ├── FashionAgentPanel.tsx  # Fashion Agent interface (left side)
 │   │   ├── SearchBar.tsx
 │   │   ├── ProductCard.tsx
 │   │   ├── Carousel.tsx
 │   │   ├── CategoryTiles.tsx
 │   │   ├── FiltersBar.tsx
 │   │   ├── RefinementChips.tsx
-│   │   ├── ChatPanel.tsx
 │   │   └── LookCard.tsx
 │   ├── lib/
-│   │   ├── types/         # TypeScript interfaces
-│   │   ├── api/           # API client functions
-│   │   └── utils.ts       # Utility functions
-│   └── Dockerfile
-├── backend/               # Node.js backend API
+│   │   ├── types/              # TypeScript interfaces
+│   │   ├── api/                # API client functions
+│   │   └── utils.ts
+│   └── package.json
+│
+├── backend/                     # NRF Search Backend (Port 8080)
 │   ├── src/
-│   │   ├── index.ts       # Main server file
-│   │   ├── config/        # Configuration
-│   │   ├── routes/        # API routes
-│   │   ├── services/      # Google Cloud services
-│   │   ├── agents/        # Gemini agent prompts
-│   │   └── types/         # TypeScript interfaces
+│   │   ├── index.ts            # Main server file
+│   │   ├── config/             # Configuration
+│   │   ├── routes/             # API routes
+│   │   ├── services/           # Vertex AI, BigQuery services
+│   │   ├── agents/             # Gemini agent prompts
+│   │   └── types/              # TypeScript interfaces
 │   ├── bigquery-schema.sql
-│   └── Dockerfile
-├── deploy-backend.sh      # Backend deployment script
-├── deploy-frontend.sh     # Frontend deployment script
+│   └── package.json
+│
+├── fashion-agent-backend/       # Fashion Agent Backend (Port 8001)
+│   ├── src/
+│   │   ├── agent/              # Autonomous agentic loop with Claude
+│   │   ├── tools/              # Fashion tools (trends, images, palettes)
+│   │   ├── session/            # WebSocket session management
+│   │   ├── config.ts           # Configuration
+│   │   └── server.ts           # Express + WebSocket server
+│   └── package.json
+│
+├── start-all.sh                 # Start all services (Recommended)
+├── stop-all.sh                  # Stop all services
+├── logs/                        # Service logs directory
 └── README.md
 ```
 

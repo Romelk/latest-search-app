@@ -8,8 +8,11 @@ import CategoryTiles from '@/components/CategoryTiles';
 import FiltersBar from '@/components/FiltersBar';
 import RefinementChips from '@/components/RefinementChips';
 import ChatPanel from '@/components/ChatPanel';
+import FashionAgentPanel from '@/components/FashionAgentPanel';
+import FashionToolkitPanel from '@/components/FashionToolkitPanel';
 import ProductCard from '@/components/ProductCard';
 import LookCard from '@/components/LookCard';
+import ProductDetailModal from '@/components/ProductDetailModal';
 import {
   IntentMode,
   Entities,
@@ -44,10 +47,13 @@ export default function SearchPage() {
   const [looks, setLooks] = useState<Look[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [showChat, setShowChat] = useState(false);
+  const [showFashionAgent, setShowFashionAgent] = useState(false);
+  const [showToolkit, setShowToolkit] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [isCompactMode, setIsCompactMode] = useState(false);
   const [conversationHistory, setConversationHistory] = useState<string>('');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   // Home content
   const [dealsProducts, setDealsProducts] = useState<Product[]>([]);
@@ -310,7 +316,7 @@ export default function SearchPage() {
           initial={{ opacity: 1 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="relative min-h-[60vh] bg-gradient-to-br from-slate-50 via-blue-50 to-teal-50"
+          className="relative min-h-[35vh] bg-gradient-to-br from-slate-50 via-blue-50 to-teal-50"
         >
           {/* Top Brand Bar */}
           <div className="border-b border-gray-200/50 bg-white/50 backdrop-blur-sm">
@@ -325,21 +331,21 @@ export default function SearchPage() {
           </div>
 
           {/* Hero Content */}
-          <div className="container mx-auto flex min-h-[calc(60vh-80px)] items-center px-4 py-12">
+          <div className="container mx-auto flex min-h-[calc(35vh-80px)] items-center px-4 py-6">
             <div className="w-full max-w-4xl">
               {/* Main Heading */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6 }}
-                className="mb-8"
+                className="mb-6"
               >
-                <h1 className="mb-4 text-5xl font-bold leading-tight text-gray-900 md:text-6xl">
+                <h1 className="mb-3 text-4xl font-bold leading-tight text-gray-900 md:text-5xl">
                   Find exactly
                   <br />
                   what you need
                 </h1>
-                <p className="max-w-2xl text-xl text-gray-600">
+                <p className="max-w-2xl text-lg text-gray-600">
                   Search for specific products, explore categories, or describe your goal.
                   Our AI understands what you're looking for.
                 </p>
@@ -462,7 +468,7 @@ export default function SearchPage() {
       )}
 
       {/* Main Content */}
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-8 pb-32">
         <AnimatePresence mode="wait">
           {showHomeContent && (
             <motion.div
@@ -472,8 +478,16 @@ export default function SearchPage() {
               exit={{ opacity: 0 }}
               className="space-y-8"
             >
-              <Carousel title="Deals of the day" products={dealsProducts} />
-              <Carousel title="Top selling products" products={topSellingProducts} />
+              <Carousel
+                title="Deals of the day"
+                products={dealsProducts}
+                onProductClick={(product) => setSelectedProduct(product)}
+              />
+              <Carousel
+                title="Top selling products"
+                products={topSellingProducts}
+                onProductClick={(product) => setSelectedProduct(product)}
+              />
               <CategoryTiles
                 categories={categories}
                 onCategoryClick={(cat) => handleSearch(cat.name)}
@@ -501,7 +515,11 @@ export default function SearchPage() {
                   </h2>
                   <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
                     {products.map((product) => (
-                      <ProductCard key={product.product_id} product={product} />
+                      <ProductCard
+                        key={product.product_id}
+                        product={product}
+                        onClick={() => setSelectedProduct(product)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -529,11 +547,184 @@ export default function SearchPage() {
       </div>
 
       {/* Chat Panel (GOAL mode) */}
-      {showChat && (
-        <ChatPanel
-          messages={chatMessages}
-          onOptionSelect={handleChatOptionSelect}
-          onClose={() => setShowChat(false)}
+      <AnimatePresence>
+        {showChat && (
+          <ChatPanel
+            messages={chatMessages}
+            onOptionSelect={handleChatOptionSelect}
+            onFreeTextSubmit={async (text) => {
+              // User provided free-text elaboration - re-run intent detection with the new text
+              const updatedQuery = `${query}. ${text}`;
+              const intentResult = await detectIntent(sessionId, updatedQuery);
+
+              // Re-run clarifier with updated entities
+              const clarifyResult = await clarifyGoal(sessionId, updatedQuery, intentResult.entities, conversationHistory);
+
+              // Add user message
+              setChatMessages(prev => [...prev, {
+                id: Date.now().toString(),
+                role: 'user',
+                content: text,
+              }]);
+
+              // Add AI response
+              setChatMessages(prev => [...prev, {
+                id: (Date.now() + 1).toString(),
+                role: 'assistant',
+                content: clarifyResult.question,
+                options: clarifyResult.options,
+              }]);
+
+              setConversationHistory(prev => `${prev}\nUser: ${text}\nAssistant: ${clarifyResult.question}`);
+            }}
+            onClose={() => setShowChat(false)}
+            allowFreeText={chatMessages.length > 0 && chatMessages[chatMessages.length - 1].content.includes("Could you share a bit more")}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Floating Chat Button - Shows when chat is closed and there are messages (RIGHT SIDE) */}
+      <AnimatePresence>
+        {!showChat && chatMessages.length > 0 && (
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowChat(true)}
+            className="fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-blue-600 text-white shadow-2xl ring-4 ring-white transition-all hover:bg-blue-700 hover:shadow-blue-500/50"
+            aria-label="Open chat"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+              className="h-7 w-7"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"
+              />
+            </svg>
+            {/* Notification Badge - if there are new messages */}
+            {chatMessages.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs font-bold text-white ring-2 ring-white">
+                {chatMessages.length > 9 ? '9+' : chatMessages.length}
+              </span>
+            )}
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* Fashion Agent Panel (LEFT SIDE) */}
+      <AnimatePresence>
+        {showFashionAgent && (
+          <FashionAgentPanel onClose={() => setShowFashionAgent(false)} />
+        )}
+      </AnimatePresence>
+
+      {/* Floating Fashion Agent Button - Always visible on LEFT SIDE */}
+      <AnimatePresence>
+        {!showFashionAgent && (
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowFashionAgent(true)}
+            className="fixed bottom-6 left-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-pink-600 text-white shadow-2xl ring-4 ring-white transition-all hover:shadow-orange-500/50"
+            aria-label="Open Fashion Agent"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={1.5}
+              stroke="currentColor"
+              className="h-8 w-8"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z"
+              />
+            </svg>
+            {/* Badge indicating "AI Fashion Agent" */}
+            <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-r from-yellow-400 to-orange-500 text-xs font-bold text-white ring-2 ring-white">
+              AI
+            </span>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* AI Fashion Toolkit Panel (RIGHT SIDE) */}
+      <AnimatePresence>
+        {showToolkit && (
+          <motion.div
+            initial={{ x: '100%', opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: '100%', opacity: 0 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed right-0 top-0 z-50 h-screen w-full overflow-y-auto bg-white shadow-2xl md:w-[500px]"
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white p-4">
+              <h2 className="text-lg font-bold text-gray-900">AI Fashion Toolkit</h2>
+              <button
+                onClick={() => setShowToolkit(false)}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close toolkit"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={2}
+                  stroke="currentColor"
+                  className="h-6 w-6"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <FashionToolkitPanel />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating AI Toolkit Button - Always visible on RIGHT SIDE */}
+      <AnimatePresence>
+        {!showToolkit && (
+          <motion.button
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowToolkit(true)}
+            className="fixed bottom-6 right-6 z-40 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-2xl ring-4 ring-white transition-all hover:shadow-indigo-500/50"
+            aria-label="Open AI Fashion Toolkit"
+          >
+            <span className="text-3xl">✨</span>
+            {/* Badge indicating "New" */}
+            <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-r from-green-400 to-emerald-500 text-xs font-bold text-white ring-2 ring-white">
+              AI
+            </span>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* Product Detail Modal */}
+      {selectedProduct && (
+        <ProductDetailModal
+          product={selectedProduct}
+          onClose={() => setSelectedProduct(null)}
         />
       )}
     </div>

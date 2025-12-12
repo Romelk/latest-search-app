@@ -6,6 +6,8 @@ import {
   buildClarifierPrompt,
   buildExplainerPrompt,
   buildExplainResultsPrompt,
+  buildSearchFulfillmentPrompt,
+  buildValidateResultsPrompt,
   buildOutfitComposerPrompt,
 } from '../agents/prompts';
 import {
@@ -66,6 +68,7 @@ router.post('/search-results', async (req: Request, res: Response) => {
     }
 
     // Build search filters from entities and filters
+    // AI-SMART: Only apply filters that are likely to have data in our catalog
     const searchFilters: SearchFilters = {
       ...filters,
     };
@@ -74,18 +77,74 @@ router.post('/search-results', async (req: Request, res: Response) => {
     if (entities) {
       if (entities.category) searchFilters.category = entities.category;
       if (entities.color) searchFilters.color = entities.color;
-      if (entities.size) searchFilters.size = entities.size;
+      // SKIP SIZE AND FIT - Myntra CSV data doesn't have these populated
+      // The fulfillment analysis will communicate this to users
+      // if (entities.size) searchFilters.size = entities.size;
+      // if (entities.fit) searchFilters.fit = entities.fit;
       if (entities.brand) searchFilters.brand = entities.brand;
-      if (entities.fit) searchFilters.fit = entities.fit;
       if (entities.style) searchFilters.style = entities.style;
       if (entities.occasion) searchFilters.occasion = [entities.occasion];
     }
 
+    console.log(`🔍 Searching with smart filters:`, searchFilters);
     const results = await searchProducts(query, searchFilters, 20);
 
+    // AI-powered result validation DISABLED FOR DEMO
+    // Reason: Validation is incorrectly classifying products (e.g., shirts as deodorants)
+    // causing false positives and filtering out good results
+    let validatedResults = results;
+    let fulfillment = undefined;
+
+    if (results.length > 0) {
+      try {
+        // VALIDATION DISABLED - Skip to fulfillment check
+        // const context = `Occasion: ${entities?.occasion || 'Not specified'}, Gender: ${entities?.gender || 'Not specified'}, Category: ${entities?.category || 'Any'}`;
+        // const validationPrompt = buildValidateResultsPrompt(query, context, results.map(...));
+        // const validation = await callGeminiJSON<{ valid_product_ids: string[]; reason: string }>(validationPrompt);
+        // validatedResults = results.filter(r => validation.valid_product_ids.includes(r.product_id));
+
+        // Check search fulfillment - did we actually find what they asked for?
+        if (validatedResults.length > 0) {
+          const requirements = `Color: ${entities?.color || 'Any'}, Size: ${entities?.size || 'Any'}, Category: ${entities?.category || 'Any'}, Fit: ${entities?.fit || 'Any'}`;
+
+          const fulfillmentPrompt = buildSearchFulfillmentPrompt(
+            query,
+            requirements,
+            validatedResults.slice(0, 5).map(r => ({
+              product_id: r.product_id,
+              title: r.title,
+              category: r.category,
+              color: r.color,
+              size: r.size,
+              fit: r.fit,
+            }))
+          );
+
+          fulfillment = await callGeminiJSON<{
+            fulfillment_type: 'exact' | 'partial' | 'none';
+            matched_attributes: string[];
+            missing_attributes: string[];
+            user_message: string;
+            suggestion?: string;
+          }>(fulfillmentPrompt);
+
+          if (fulfillment.fulfillment_type !== 'exact') {
+            console.log(`💡 Search Fulfillment: ${fulfillment.fulfillment_type}`);
+            console.log(`   Missing: ${fulfillment.missing_attributes.join(', ')}`);
+            console.log(`   Message: ${fulfillment.user_message}`);
+          }
+        }
+      } catch (error) {
+        console.error('Error validating results:', error);
+        // On validation error, return all results (fail open)
+        validatedResults = results;
+      }
+    }
+
     const response: SearchResultsResponse = {
-      results,
-      total: results.length,
+      results: validatedResults,
+      total: validatedResults.length,
+      fulfillment,
     };
 
     res.json(response);
@@ -127,8 +186,9 @@ router.post('/compose-outfits', async (req: Request, res: Response) => {
     const participants = entities.participants || 'self';
     const occasion = entities.occasion || 'casual outing';
     const selectedStyle = choice.style || choice.palette || 'contemporary casual';
+    const gender = entities.gender || 'Not specified';
 
-    console.log(`Composing outfits for: ${occasion}, style: ${selectedStyle}`);
+    console.log(`Composing outfits for: ${occasion}, style: ${selectedStyle}, gender: ${gender}`);
 
     // Use AI to intelligently compose outfits based on the selected style
     const composerPrompt = buildOutfitComposerPrompt(
@@ -136,6 +196,7 @@ router.post('/compose-outfits', async (req: Request, res: Response) => {
       occasion,
       selectedStyle,
       participants,
+      gender,
       entities
     );
 
@@ -160,12 +221,17 @@ router.post('/compose-outfits', async (req: Request, res: Response) => {
 
       // Search for each item in this look
       for (const item of aiLook.items) {
-        const products = await searchProducts(item.search_query, item.filters, 1);
+        const products = await searchProducts(item.search_query, item.filters, 3);
+
+        // For demo: Skip validation in outfit composition to avoid false positives
+        // Validation is too aggressive and filters out good products
         if (products.length > 0) {
           lookItems.push({
             ...products[0],
             for: item.for,
           } as any);
+        } else {
+          console.log(`⚠️  No products found for: ${item.search_query}`);
         }
       }
 

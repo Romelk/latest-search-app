@@ -37,47 +37,48 @@ export default function LandingPage() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
-        className="flex max-w-4xl flex-col items-center px-8 text-center"
+        className="flex max-w-6xl flex-col items-center px-8 text-center"
       >
-        <h1 className="mb-6 text-6xl font-bold text-gray-900 md:text-7xl">
-          Search that understands you
-        </h1>
-        <p className="mb-12 max-w-2xl text-xl text-gray-600 md:text-2xl">
+        <h1 className="mb-8 text-4xl font-extrabold leading-[1.1] tracking-tight md:text-7xl bg-gradient-to-r from-teal-600 via-blue-600 to-blue-700 bg-clip-text text-transparent" > Search that understands <br /> YOU </h1>
+        <p className="mb-12 max-w-3xl text-xl text-gray-600 md:text-2xl">
           Shopping with an intelligent helper that understands your goals, not just keywords.
         </p>
 
         <div className="relative">
           {/* Particle Effects */}
-          {[...Array(8)].map((_, i) => (
+          {[...Array(15)].map((_, i) => (
             <motion.div
               key={i}
-              className="absolute h-2 w-2 rounded-full bg-teal-400"
+              className="absolute h-3 w-3 rounded-full bg-teal-400 shadow-lg shadow-teal-300/50"
               style={{
-                left: `${20 + i * 15}%`,
-                top: `${-20 + (i % 3) * 20}px`,
+                left: `${10 + i * 10}%`,
+                top: `${-30 + (i % 4) * 20}px`,
               }}
               animate={{
-                y: [0, -30, 0],
-                opacity: [0, 1, 0],
-                scale: [0, 1, 0],
+                y: [0, -40, 0],
+                opacity: [0, 0.8, 0],
+                scale: [0, 1.2, 0],
               }}
               transition={{
                 duration: 2.5,
                 repeat: Infinity,
-                delay: i * 0.3,
+                delay: i * 0.2,
                 ease: "easeInOut",
               }}
             />
           ))}
 
+          {/* Glow effect beneath button */}
+          <div className="absolute inset-0 -bottom-4 rounded-full bg-gradient-to-r from-teal-400 via-blue-400 to-teal-400 opacity-40 blur-3xl" />
+
           <motion.button
             whileHover={{
               scale: 1.05,
-              boxShadow: "0 20px 40px rgba(20, 184, 166, 0.4)",
+              boxShadow: "0 25px 50px rgba(20, 184, 166, 0.5)",
             }}
             whileTap={{ scale: 0.95 }}
             onClick={handleStartJourney}
-            className="group relative flex flex-row items-center gap-3 overflow-hidden rounded-full bg-gradient-to-r from-teal-600 via-blue-600 to-teal-700 px-12 py-6 text-lg font-semibold text-white shadow-lg transition-all hover:shadow-2xl"
+            className="group relative flex flex-row items-center gap-3 overflow-hidden rounded-full bg-gradient-to-r from-teal-500 via-blue-600 to-blue-700 px-12 py-6 text-lg font-semibold text-white shadow-2xl transition-all hover:shadow-teal-500/50"
           >
             <span>Start your journey</span>
             <motion.div
@@ -89,7 +90,7 @@ export default function LandingPage() {
 
             {/* Glow effect on hover */}
             <motion.div
-              className="absolute inset-0 rounded-full bg-gradient-to-r from-blue-400 via-teal-400 to-blue-400 opacity-0 blur-xl transition-opacity group-hover:opacity-30"
+              className="absolute inset-0 rounded-full bg-gradient-to-r from-blue-400 via-teal-400 to-blue-400 opacity-0 blur-xl transition-opacity group-hover:opacity-40"
             />
           </motion.button>
         </div>

@@ -8,9 +8,10 @@ import ProductCard from './ProductCard';
 interface CarouselProps {
   title: string;
   products: Product[];
+  onProductClick?: (product: Product) => void;
 }
 
-export default function Carousel({ title, products }: CarouselProps) {
+export default function Carousel({ title, products, onProductClick }: CarouselProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
@@ -69,7 +70,7 @@ export default function Carousel({ title, products }: CarouselProps) {
       >
         {products.map((product) => (
           <div key={product.product_id} className="flex-none w-64">
-            <ProductCard product={product} />
+            <ProductCard product={product} onClick={() => onProductClick?.(product)} />
           </div>
         ))}
       </div>

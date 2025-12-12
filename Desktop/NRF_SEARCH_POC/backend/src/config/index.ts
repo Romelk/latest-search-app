@@ -20,6 +20,11 @@ export const config = {
     nodeEnv: process.env.NODE_ENV || 'development',
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   },
+  claude: {
+    apiKey: process.env.CLAUDE_API_KEY || '',
+    model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5-20250929',
+    maxTokens: parseInt(process.env.CLAUDE_MAX_TOKENS || '4096', 10),
+  },
 };
 
 export function validateConfig(): void {

@@ -3,6 +3,7 @@ export type IntentMode = 'CLEAR' | 'AMBIGUOUS' | 'GOAL' | 'NONE';
 export interface Entities {
   occasion?: string | null;
   participants?: string | null;
+  gender?: string | null;
   age_group?: string | null;
   body_type?: string | null;
   style?: string | null;
@@ -32,6 +33,14 @@ export interface Product {
   occasion_tags?: string[];
   style?: string;
   description?: string;
+  // Myntra CSV fields
+  rating?: number;
+  rating_count?: number;
+  discount_percentage?: number;
+  original_price?: number;
+  product_url?: string;
+  image_urls?: string[];
+  data_source?: string;
 }
 
 export interface LookItem {

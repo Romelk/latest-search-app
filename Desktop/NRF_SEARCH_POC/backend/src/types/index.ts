@@ -3,6 +3,7 @@ export type IntentMode = 'CLEAR' | 'AMBIGUOUS' | 'GOAL' | 'NONE';
 export interface Entities {
   occasion?: string | null;
   participants?: string | null;
+  gender?: string | null;
   age_group?: string | null;
   body_type?: string | null;
   style?: string | null;
@@ -44,11 +45,28 @@ export interface Product {
   style?: string;
   description?: string;
   attributes?: Record<string, any>;
+  // Myntra CSV fields
+  rating?: number;
+  rating_count?: number;
+  discount_percentage?: number;
+  original_price?: number;
+  product_url?: string;
+  image_urls?: string[];
+  data_source?: string;
+}
+
+export interface SearchFulfillment {
+  fulfillment_type: 'exact' | 'partial' | 'none';
+  matched_attributes: string[];
+  missing_attributes: string[];
+  user_message: string;
+  suggestion?: string;
 }
 
 export interface SearchResultsResponse {
   results: Product[];
   total: number;
+  fulfillment?: SearchFulfillment;
 }
 
 export interface ClarifyGoalResponse {
