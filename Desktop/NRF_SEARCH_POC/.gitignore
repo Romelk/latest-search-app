@@ -52,3 +52,11 @@ Thumbs.db
 logs/
 *.log
 *.pid
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc

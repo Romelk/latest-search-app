@@ -3,8 +3,10 @@ Alex Fashion Stylist - FastAPI Service
 Main API server for personalized fashion styling recommendations
 """
 import json
+import os
 from typing import Optional
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +19,9 @@ from prompts import build_stylist_prompt, get_stylist_system_prompt
 from image_generator import generate_image_with_nanoBanana, generate_multi_angle_images, generate_multi_angle_from_image, generate_multiple_variations, ImageGeneratorError
 from video_generator import generate_video_with_veo3, VideoGeneratorError
 from pydantic import BaseModel
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 # ============================================================================

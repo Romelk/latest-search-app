@@ -24,12 +24,8 @@ def get_gemini_api_key() -> str:
     Raises:
         ImageGeneratorError: If API key is not set
     """
-    # TEMPORARY: Hardcoded API key for testing
-    # TODO: Remove this and use environment variable in production
-    HARDCODED_KEY = "AIzaSyA_-M5tsP5T8_57wHCowK-f8i_twhFm86A"
-
-    # Try hardcoded key first (for testing), then environment variables
-    api_key = HARDCODED_KEY or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    # Get API key from environment variables only (secure method)
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
     if not api_key:
         raise ImageGeneratorError(
