@@ -1,102 +1,132 @@
 #!/bin/bash
 
-# Agentic Search Demo - Startup Script
-# This script starts both backend and frontend servers
+# NRF Search POC - Startup Script
+# This script starts the frontend and backend servers
 
-echo "╔════════════════════════════════════════════════════════════════╗"
-echo "║                                                                ║"
-echo "║   🚀 Starting Agentic Search Demo                             ║"
-echo "║                                                                ║"
-echo "╚════════════════════════════════════════════════════════════════╝"
+set -e
+
+echo "🚀 Starting NRF Search POC Application..."
 echo ""
 
-# Check if servers are already running
-BACKEND_PID=$(lsof -ti:8080)
-FRONTEND_PID=$(lsof -ti:3000)
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
 
-if [ -n "$BACKEND_PID" ]; then
-  echo "⚠️  Backend already running on port 8080 (PID: $BACKEND_PID)"
-  echo "   Run './stop.sh' first to stop existing servers"
-  exit 1
-fi
-
-if [ -n "$FRONTEND_PID" ]; then
-  echo "⚠️  Frontend already running on port 3000 (PID: $FRONTEND_PID)"
-  echo "   Run './stop.sh' first to stop existing servers"
-  exit 1
-fi
-
-# Check if node_modules exist
-if [ ! -d "backend/node_modules" ]; then
-  echo "📦 Installing backend dependencies..."
-  cd backend && npm install && cd ..
-fi
-
-if [ ! -d "frontend/node_modules" ]; then
-  echo "📦 Installing frontend dependencies..."
-  cd frontend && npm install && cd ..
-fi
+# Function to check if a port is in use
+check_port() {
+    lsof -ti:$1 > /dev/null 2>&1
+    return $?
+}
 
 # Create logs directory if it doesn't exist
 mkdir -p logs
 
-# Start backend server in background
-echo "🔧 Starting backend server (port 8080)..."
+# Check if ports are already in use
+echo "📋 Checking ports..."
+if check_port 3000; then
+    echo -e "${YELLOW}⚠️  Port 3000 is already in use${NC}"
+    echo "   Frontend may already be running or using alternate port"
+fi
+
+if check_port 5000; then
+    echo -e "${YELLOW}⚠️  Port 5000 is already in use${NC}"
+    echo "   Backend may already be running"
+fi
+
+if check_port 8080; then
+    echo -e "${YELLOW}⚠️  Port 8080 is already in use${NC}"
+    echo "   Fashion Agent Backend may already be running"
+fi
+echo ""
+
+# Start Backend Server
+echo -e "${BLUE}🔧 Starting Backend Server (Port 5000)...${NC}"
 cd backend
+if [ ! -d "node_modules" ]; then
+    echo "   Installing backend dependencies..."
+    npm install
+fi
 nohup npm run dev > ../logs/backend.log 2>&1 &
 BACKEND_PID=$!
-echo $BACKEND_PID > ../logs/backend.pid
+echo "   Backend PID: $BACKEND_PID"
+echo ""
 cd ..
 
 # Wait a moment for backend to start
-sleep 3
+sleep 2
 
-# Start frontend server in background
-echo "🎨 Starting frontend server (port 3000)..."
-cd frontend
-nohup npm run dev > ../logs/frontend.log 2>&1 &
-FRONTEND_PID=$!
-echo $FRONTEND_PID > ../logs/frontend.pid
+# Start Fashion Agent Backend
+echo -e "${BLUE}🤖 Starting Fashion Agent Backend (Port 8080)...${NC}"
+cd fashion-agent-backend
+if [ ! -d "node_modules" ]; then
+    echo "   Installing fashion agent dependencies..."
+    npm install
+fi
+nohup npm run dev > ../logs/fashion-agent.log 2>&1 &
+FASHION_AGENT_PID=$!
+echo "   Fashion Agent PID: $FASHION_AGENT_PID"
+echo ""
 cd ..
 
-# Wait for servers to be ready
+# Wait a moment for fashion agent to start
+sleep 2
+
+# Start Frontend Server
+echo -e "${BLUE}🎨 Starting Frontend Server (Port 3000)...${NC}"
+cd frontend
+if [ ! -d "node_modules" ]; then
+    echo "   Installing frontend dependencies..."
+    npm install
+fi
+nohup npm run dev > ../logs/frontend.log 2>&1 &
+FRONTEND_PID=$!
+echo "   Frontend PID: $FRONTEND_PID"
 echo ""
+cd ..
+
+# Wait for servers to fully start
 echo "⏳ Waiting for servers to start..."
 sleep 5
 
-# Check if servers are responding
-BACKEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health 2>/dev/null)
-FRONTEND_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 2>/dev/null)
-
-echo ""
-echo "╔════════════════════════════════════════════════════════════════╗"
-echo "║                                                                ║"
-echo "║   ✅ Agentic Search Demo Started                              ║"
-echo "║                                                                ║"
-echo "╠════════════════════════════════════════════════════════════════╣"
-
-if [ "$BACKEND_STATUS" = "200" ]; then
-  echo "║   Backend:  ✅ http://localhost:8080                          ║"
+# Check if processes are still running
+if ps -p $BACKEND_PID > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ Backend running on http://localhost:5000${NC}"
 else
-  echo "║   Backend:  ⚠️  Starting... (check logs/backend.log)          ║"
+    echo -e "${YELLOW}⚠️  Backend may have failed to start. Check logs/backend.log${NC}"
 fi
 
-if [ "$FRONTEND_STATUS" = "200" ] || [ "$FRONTEND_STATUS" = "000" ]; then
-  echo "║   Frontend: ✅ http://localhost:3000                          ║"
+if ps -p $FASHION_AGENT_PID > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ Fashion Agent running on http://localhost:8080${NC}"
 else
-  echo "║   Frontend: ⚠️  Starting... (check logs/frontend.log)         ║"
+    echo -e "${YELLOW}⚠️  Fashion Agent may have failed to start. Check logs/fashion-agent.log${NC}"
 fi
 
-echo "║                                                                ║"
-echo "╠════════════════════════════════════════════════════════════════╣"
-echo "║                                                                ║"
-echo "║   📝 Logs:                                                     ║"
-echo "║      Backend:  logs/backend.log                                ║"
-echo "║      Frontend: logs/frontend.log                               ║"
-echo "║                                                                ║"
-echo "║   🛑 To stop: ./stop.sh                                        ║"
-echo "║                                                                ║"
-echo "╚════════════════════════════════════════════════════════════════╝"
+if ps -p $FRONTEND_PID > /dev/null 2>&1; then
+    echo -e "${GREEN}✅ Frontend running on http://localhost:3000${NC}"
+else
+    echo -e "${YELLOW}⚠️  Frontend may have failed to start. Check logs/frontend.log${NC}"
+fi
+
 echo ""
-echo "💡 Open http://localhost:3000 in your browser to start"
+echo -e "${GREEN}🎉 Application started successfully!${NC}"
 echo ""
+echo "📱 Access the application:"
+echo "   - Landing Page: http://localhost:3000"
+echo "   - New Search: http://localhost:3000/new-search"
+echo "   - Toolkit: http://localhost:3000/toolkit"
+echo ""
+echo "📝 View logs:"
+echo "   - Backend: tail -f logs/backend.log"
+echo "   - Fashion Agent: tail -f logs/fashion-agent.log"
+echo "   - Frontend: tail -f logs/frontend.log"
+echo ""
+echo "🛑 To stop the application, run: ./shutdown.sh"
+echo ""
+
+# Save PIDs to file for shutdown script
+mkdir -p .pids
+echo $BACKEND_PID > .pids/backend.pid
+echo $FASHION_AGENT_PID > .pids/fashion-agent.pid
+echo $FRONTEND_PID > .pids/frontend.pid
