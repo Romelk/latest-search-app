@@ -8,11 +8,21 @@ export function getBigQuery(): BigQuery {
   if (!bigquery) {
     bigquery = new BigQuery({
       projectId: config.gcp.projectId,
+      location: 'US', // BigQuery dataset location (must match dataset location)
     });
   }
   return bigquery;
 }
 
+/**
+ * Enhanced searchProducts - Hybrid approach
+ *
+ * Philosophy:
+ * - Query text IS searched (in title, description, category, raw_category)
+ * - Filters (category, gender, color, occasion) are STRICT for precision
+ * - If no filters AND no query matches → return empty (prevents false positives)
+ * - Relevance is based on: text match quality > rating > price
+ */
 export async function searchProducts(
   query: string,
   filters?: SearchFilters,
@@ -23,86 +33,124 @@ export async function searchProducts(
     const dataset = config.bigquery.dataset;
     const table = config.bigquery.table;
 
-    // Build WHERE clauses
     const whereClauses: string[] = [];
-    const params: any[] = [];
+    const queryParams: Record<string, any> = { limit };
 
-    // Text search on title and description
-    if (query) {
-      // Check if query starts with gender keywords (men, women, boys, girls)
-      const genderKeywords = ['men', 'women', 'boys', 'girls'];
-      const lowerQuery = query.toLowerCase();
-      const startsWithGender = genderKeywords.some(keyword => lowerQuery.startsWith(keyword));
+    // ========================================
+    // TEXT SEARCH ON QUERY (if provided)
+    // ========================================
+    if (query && query.trim()) {
+      const cleanQuery = query.toLowerCase().trim();
 
-      if (startsWithGender) {
-        // For gender-specific queries, extract just the gender keyword and match at word boundaries
-        // to avoid "men" matching "Women"
-        const genderKeyword = genderKeywords.find(keyword => lowerQuery.startsWith(keyword))!;
-        whereClauses.push('REGEXP_CONTAINS(LOWER(title), r"\\b' + genderKeyword + '\\b")');
-      } else {
-        // For other queries, split into words and match any word in title
-        const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-        if (words.length > 0) {
-          const wordMatches = words.map(word => `LOWER(title) LIKE '%${word}%'`).join(' OR ');
-          whereClauses.push(`(${wordMatches})`);
-        }
+      // Search across multiple fields for better recall
+      whereClauses.push(`(
+        LOWER(title) LIKE CONCAT('%', @query_term, '%') OR
+        LOWER(description) LIKE CONCAT('%', @query_term, '%') OR
+        LOWER(category) LIKE CONCAT('%', @query_term, '%') OR
+        LOWER(raw_category) LIKE CONCAT('%', @query_term, '%')
+      )`);
+      queryParams.query_term = cleanQuery;
+    }
+
+    // ========================================
+    // EXTRACT GENDER FROM QUERY (if present)
+    // ========================================
+    const genderFromQuery = extractGender(query);
+    if (genderFromQuery && !filters?.gender) {
+      whereClauses.push('LOWER(gender) = @gender');
+      queryParams.gender = genderFromQuery;
+    }
+
+    // ========================================
+    // FILTERS (All are strict/exact)
+    // ========================================
+
+    // Category (exact match after normalization)
+    if (filters?.category) {
+      const normalizedCategory = normalizeCategoryName(filters.category);
+      whereClauses.push('LOWER(category) = @category');
+      queryParams.category = normalizedCategory;
+    }
+
+    // Gender (overrides extracted gender)
+    if (filters?.gender) {
+      whereClauses.push('LOWER(gender) = @gender_filter');
+      queryParams.gender_filter = filters.gender.toLowerCase();
+    }
+
+    // Color (exact match)
+    if (filters?.color) {
+      whereClauses.push('LOWER(color) = @color');
+      queryParams.color = filters.color.toLowerCase();
+    }
+
+    // Brand (exact match) - handle both string and array
+    if (filters?.brand) {
+      const brandValue = Array.isArray(filters.brand) ? filters.brand[0] : filters.brand;
+      if (brandValue && typeof brandValue === 'string') {
+        whereClauses.push('LOWER(brand) = @brand');
+        queryParams.brand = brandValue.toLowerCase();
       }
     }
 
-    // Apply filters
-    if (filters) {
-      if (filters.category) {
-        // Use LIKE for flexible category matching (handles singular/plural variations)
-        whereClauses.push('LOWER(category) LIKE LOWER(@category)');
-        params.push(`%${filters.category}%`);
-      }
-      if (filters.color) {
-        whereClauses.push('LOWER(color) = LOWER(@color)');
-        params.push(filters.color);
-      }
-      if (filters.brand) {
-        whereClauses.push('LOWER(brand) = LOWER(@brand)');
-        params.push(filters.brand);
-      }
-      if (filters.size) {
-        whereClauses.push('size = @size');
-        params.push(filters.size);
-      }
-      if (filters.fit) {
-        whereClauses.push('LOWER(fit) = LOWER(@fit)');
-        params.push(filters.fit);
-      }
-      if (filters.style) {
-        whereClauses.push('LOWER(style) = LOWER(@style)');
-        params.push(filters.style);
-      }
-      if (filters.price_min !== undefined) {
-        whereClauses.push('price >= @price_min');
-        params.push(filters.price_min);
-      }
-      if (filters.price_max !== undefined) {
-        whereClauses.push('price <= @price_max');
-        params.push(filters.price_max);
-      }
-      if (filters.occasion && filters.occasion.length > 0) {
-        whereClauses.push('EXISTS (SELECT 1 FROM UNNEST(occasion_tags) AS tag WHERE tag IN UNNEST(@occasion))');
-        params.push(filters.occasion);
+    // Occasion (ANY match in array)
+    if (filters?.occasion && filters.occasion.length > 0) {
+      // Flatten occasion array in case it's nested (e.g., [['formal']] → ['formal'])
+      const flattenedOccasions = filters.occasion.flat().filter(occ => typeof occ === 'string');
+
+      // Map user-friendly occasions to database tags
+      const occasionMapping: Record<string, string[]> = {
+        'interview': ['formal', 'work'],
+        'wedding': ['formal', 'party'],
+        'date': ['party', 'casual'],
+      };
+
+      if (flattenedOccasions.length > 0) {
+        const mappedOccasions = flattenedOccasions.flatMap(occ => {
+          const mapped = occasionMapping[occ.toLowerCase()];
+          return mapped || [occ]; // Use mapping or original value
+        });
+
+        const occasionConditions = mappedOccasions.map((occ, idx) => {
+          queryParams[`occasion${idx}`] = occ.toLowerCase();
+          return `EXISTS (SELECT 1 FROM UNNEST(occasion_tags) AS tag WHERE LOWER(tag) = @occasion${idx})`;
+        });
+        whereClauses.push(`(${occasionConditions.join(' OR ')})`);
       }
     }
 
-    // Filter out non-clothing accessories for cleaner fashion demo
-    const nonClothingCategories = [
-      'deodorant', 'perfume and body mist', 'hair gels and wax', 'socks', 'belts',
-      'watches', 'face wash and cleanser', 'sunscreen', 'lip balm', 'hair accessories',
-      'mobile pouch', 'handbags', 'wallets', 'backpacks'
-    ];
-    const categoryExclusions = nonClothingCategories.map(cat => `LOWER(category) != '${cat}'`).join(' AND ');
+    // Price range
+    if (filters?.price_min !== undefined) {
+      whereClauses.push('price >= @price_min');
+      queryParams.price_min = filters.price_min;
+    }
+    if (filters?.price_max !== undefined) {
+      whereClauses.push('price <= @price_max');
+      queryParams.price_max = filters.price_max;
+    }
 
-    const baseWhere = whereClauses.length > 0 ? whereClauses.join(' AND ') : '';
-    const whereClause = baseWhere
-      ? `WHERE ${baseWhere} AND ${categoryExclusions}`
-      : `WHERE ${categoryExclusions}`;
+    // Style - DISABLED: style column is empty in current dataset
+    // if (filters?.style) {
+    //   whereClauses.push('LOWER(style) = @style');
+    //   queryParams.style = filters.style.toLowerCase();
+    // }
 
+    // Build WHERE clause
+    const whereClause = whereClauses.length > 0
+      ? `WHERE ${whereClauses.join(' AND ')}`
+      : '';
+
+    // ========================================
+    // SAFETY CHECK: Prevent returning all products
+    // ========================================
+    if (whereClauses.length === 0) {
+      console.log('⚠️  No search criteria provided (no query, no filters) - returning empty results to prevent false positives');
+      return [];
+    }
+
+    // ========================================
+    // QUERY with RELEVANCE SORTING
+    // ========================================
     const sqlQuery = `
       SELECT
         product_id,
@@ -111,243 +159,179 @@ export async function searchProducts(
         price,
         image_url,
         category,
+        raw_category,
+        gender,
         color,
         size,
         fit,
         occasion_tags,
         style,
-        description
+        description,
+        rating,
+        rating_count,
+        original_price
       FROM \`${config.gcp.projectId}.${dataset}.${table}\`
       ${whereClause}
-      ORDER BY price ASC
+      ORDER BY
+        CASE WHEN rating IS NOT NULL THEN rating ELSE 0 END DESC,
+        price ASC
       LIMIT @limit
     `;
 
-    // Create query options
-    const queryOptions: any = {
+    const queryOptions = {
       query: sqlQuery,
-      params: {
-        limit: limit,
-      },
+      params: queryParams,
     };
 
-    // Add filter parameters
-    if (filters) {
-      if (filters.category) queryOptions.params.category = `%${filters.category}%`;
-      if (filters.color) queryOptions.params.color = filters.color;
-      if (filters.brand) queryOptions.params.brand = filters.brand;
-      if (filters.size) queryOptions.params.size = filters.size;
-      if (filters.fit) queryOptions.params.fit = filters.fit;
-      if (filters.style) queryOptions.params.style = filters.style;
-      if (filters.price_min !== undefined) queryOptions.params.price_min = filters.price_min;
-      if (filters.price_max !== undefined) queryOptions.params.price_max = filters.price_max;
-      if (filters.occasion) queryOptions.params.occasion = filters.occasion;
-    }
+    console.log('🔍 BigQuery Search:', {
+      query,
+      filters,
+      whereClauses,
+      params: queryParams,
+    });
 
     const [rows] = await bq.query(queryOptions);
+
+    console.log(`✅ Found ${rows.length} products`);
+
     return rows as Product[];
   } catch (error) {
-    console.error('Error querying BigQuery:', error);
-    // Return mock data for development
-    return getMockProducts(query, filters, limit);
+    console.error('❌ Error querying BigQuery:', error);
+    throw error;
   }
 }
 
-// Mock data for development/testing when BigQuery is not available
-// Matches the 10 products in BigQuery: nrf-search-demo.fashion_catalog.products
+/**
+ * Extract gender from query string
+ * Uses word boundaries to avoid false matches (e.g., "women" containing "men")
+ */
+function extractGender(query: string): string | null {
+  const lowerQuery = query.toLowerCase();
+
+  // Check for female keywords FIRST (to avoid "women" matching "men")
+  if (/\b(women|woman|women's|female|girl|girl's|girls|ladies)\b/i.test(lowerQuery)) {
+    return 'women';
+  }
+
+  // Then check for male keywords
+  if (/\b(men|man|men's|male|boy|boy's|boys)\b/i.test(lowerQuery)) {
+    return 'men';
+  }
+
+  return null;
+}
+
+/**
+ * Normalize category name to match BigQuery data
+ */
+function normalizeCategoryName(category: string): string {
+  const categoryMap: Record<string, string> = {
+    'pant': 'bottom',
+    'pants': 'bottom',
+    'trouser': 'bottom',
+    'trousers': 'bottom',
+    'bottom': 'bottom',
+    'bottoms': 'bottom',
+
+    'shirt': 'top',
+    'shirts': 'top',
+    'blouse': 'top',
+    'top': 'top',
+    'tops': 'top',
+
+    'jean': 'denim',
+    'jeans': 'denim',
+    'denim': 'denim',
+
+    'dress': 'one_piece',
+    'dresses': 'one_piece',
+    'gown': 'one_piece',
+    'romper': 'one_piece',
+    'jumpsuit': 'one_piece',
+    'one_piece': 'one_piece',
+    'one piece': 'one_piece',
+
+    'jacket': 'outerwear',
+    'jackets': 'outerwear',
+    'blazer': 'outerwear',
+    'coat': 'outerwear',
+    'outerwear': 'outerwear',
+  };
+
+  const normalized = category.toLowerCase().trim();
+  return categoryMap[normalized] || normalized;
+}
+
+/**
+ * Get outfit recommendations for a product
+ */
+export async function getOutfitRecommendations(
+  productId: string
+): Promise<any[]> {
+  try {
+    const bq = getBigQuery();
+    const dataset = config.bigquery.dataset;
+    const outfitsTable = 'outfits';
+
+    const sqlQuery = `
+      SELECT *
+      FROM \`${config.gcp.projectId}.${dataset}.${outfitsTable}\`
+      WHERE EXISTS (
+        SELECT 1
+        FROM UNNEST(items) AS item
+        WHERE item.product_id = @product_id
+      )
+      LIMIT 5
+    `;
+
+    const [rows] = await bq.query({
+      query: sqlQuery,
+      params: { product_id: productId },
+    });
+
+    return rows;
+  } catch (error) {
+    console.error('❌ Error fetching outfit recommendations:', error);
+    return [];
+  }
+}
+
+/**
+ * Get products by IDs
+ */
+export async function getProductsByIds(productIds: string[]): Promise<Product[]> {
+  try {
+    const bq = getBigQuery();
+    const dataset = config.bigquery.dataset;
+    const table = config.bigquery.table;
+
+    const sqlQuery = `
+      SELECT *
+      FROM \`${config.gcp.projectId}.${dataset}.${table}\`
+      WHERE product_id IN UNNEST(@product_ids)
+    `;
+
+    const [rows] = await bq.query({
+      query: sqlQuery,
+      params: { product_ids: productIds },
+    });
+
+    return rows as Product[];
+  } catch (error) {
+    console.error('❌ Error fetching products by IDs:', error);
+    return [];
+  }
+}
+
+// Mock data function (keep for fallback)
 function getMockProducts(query: string, filters?: SearchFilters, limit: number = 20): Product[] {
-  const mockProducts: Product[] = [
-    {
-      product_id: 'SKU001',
-      title: 'Blue Formal Shirt',
-      brand: 'Peter England',
-      price: 2499,
-      image_url: 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?w=400&h=600&fit=crop&q=80',
-      category: 'shirt',
-      color: 'blue',
-      size: '42',
-      fit: 'regular',
-      occasion_tags: ['formal', 'office'],
-      style: 'formal',
-      description: 'Classic blue formal shirt with regular fit',
-    },
-    {
-      product_id: 'SKU002',
-      title: 'Navy Blue Regular Fit Trousers',
-      brand: 'Van Heusen',
-      price: 2999,
-      image_url: 'https://images.unsplash.com/photo-1473966968600-fa801b869a1a?w=400&h=600&fit=crop&q=80',
-      category: 'trousers',
-      color: 'navy',
-      size: '42',
-      fit: 'regular',
-      occasion_tags: ['formal', 'office'],
-      style: 'formal',
-      description: 'Navy blue regular fit formal trousers',
-    },
-    {
-      product_id: 'SKU003',
-      title: 'Beige A-Line Kurti',
-      brand: 'Fabindia',
-      price: 2299,
-      image_url: 'https://images.unsplash.com/photo-1617127365659-c47fa864d8bc?w=400&h=600&fit=crop&q=80',
-      category: 'kurti',
-      color: 'beige',
-      size: 'M',
-      fit: 'regular',
-      occasion_tags: ['casual', 'semi-formal'],
-      style: 'ethnic',
-      description: 'Elegant beige A-line kurti for casual occasions',
-    },
-    {
-      product_id: 'SKU004',
-      title: 'White Cotton Shirt',
-      brand: 'Arrow',
-      price: 2799,
-      image_url: 'https://images.unsplash.com/photo-1620012253295-c15cc3e65df4?w=400&h=600&fit=crop&q=80',
-      category: 'shirt',
-      color: 'white',
-      size: '42',
-      fit: 'slim',
-      occasion_tags: ['formal', 'wedding'],
-      style: 'formal',
-      description: 'Classic white cotton shirt with slim fit',
-    },
-    {
-      product_id: 'SKU005',
-      title: 'Grey Comfort Fit Chinos',
-      brand: 'Allen Solly',
-      price: 3199,
-      image_url: 'https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?w=400&h=600&fit=crop&q=80',
-      category: 'trousers',
-      color: 'grey',
-      size: '42',
-      fit: 'comfort',
-      occasion_tags: ['casual', 'smart-casual'],
-      style: 'casual',
-      description: 'Comfortable grey chinos for everyday wear',
-    },
-    {
-      product_id: 'SKU006',
-      title: 'Olive Green Cotton Palazzo',
-      brand: 'Biba',
-      price: 1899,
-      image_url: 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?w=400&h=600&fit=crop&q=80',
-      category: 'palazzo',
-      color: 'olive',
-      size: 'L',
-      fit: 'regular',
-      occasion_tags: ['casual', 'festive'],
-      style: 'ethnic',
-      description: 'Comfortable olive green cotton palazzo pants',
-    },
-    {
-      product_id: 'SKU007',
-      title: 'Black Formal Blazer',
-      brand: 'Raymond',
-      price: 8999,
-      image_url: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=400&h=600&fit=crop&q=80',
-      category: 'blazer',
-      color: 'black',
-      size: '42',
-      fit: 'regular',
-      occasion_tags: ['formal', 'office'],
-      style: 'formal',
-      description: 'Premium black formal blazer',
-    },
-    {
-      product_id: 'SKU008',
-      title: 'Floral Print Maxi Dress',
-      brand: 'W',
-      price: 3499,
-      image_url: 'https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=400&h=600&fit=crop&q=80',
-      category: 'dress',
-      color: 'multicolor',
-      size: 'M',
-      fit: 'regular',
-      occasion_tags: ['casual', 'party'],
-      style: 'western',
-      description: 'Beautiful floral print maxi dress',
-    },
-    {
-      product_id: 'SKU009',
-      title: 'Denim Jeans Blue',
-      brand: 'Levis',
-      price: 4999,
-      image_url: 'https://images.unsplash.com/photo-1542272604-787c3835535d?w=400&h=600&fit=crop&q=80',
-      category: 'jeans',
-      color: 'blue',
-      size: '32',
-      fit: 'slim',
-      occasion_tags: ['casual'],
-      style: 'casual',
-      description: 'Classic blue denim jeans',
-    },
-    {
-      product_id: 'SKU010',
-      title: 'Red Running Shoes',
-      brand: 'Nike',
-      price: 6999,
-      image_url: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=600&fit=crop&q=80',
-      category: 'shoes',
-      color: 'red',
-      size: '9',
-      fit: 'regular',
-      occasion_tags: ['sports', 'casual'],
-      style: 'athletic',
-      description: 'Comfortable red running shoes',
-    },
-  ];
-
-  // Simple filtering logic for mock data
-  let filtered = mockProducts;
-
-  if (query) {
-    const lowerQuery = query.toLowerCase();
-    filtered = filtered.filter(
-      (p) =>
-        p.title.toLowerCase().includes(lowerQuery) ||
-        p.description?.toLowerCase().includes(lowerQuery) ||
-        p.category.toLowerCase().includes(lowerQuery)
-    );
-  }
-
-  if (filters) {
-    if (filters.category) {
-      filtered = filtered.filter((p) => p.category.toLowerCase() === filters.category?.toLowerCase());
-    }
-    if (filters.color) {
-      filtered = filtered.filter((p) => p.color.toLowerCase() === filters.color?.toLowerCase());
-    }
-    if (filters.brand) {
-      filtered = filtered.filter((p) => p.brand.toLowerCase() === filters.brand?.toLowerCase());
-    }
-    if (filters.size) {
-      filtered = filtered.filter((p) => p.size === filters.size);
-    }
-    if (filters.fit) {
-      filtered = filtered.filter((p) => p.fit?.toLowerCase() === filters.fit?.toLowerCase());
-    }
-    if (filters.style) {
-      filtered = filtered.filter((p) => p.style?.toLowerCase() === filters.style?.toLowerCase());
-    }
-    if (filters.price_min !== undefined) {
-      filtered = filtered.filter((p) => p.price >= filters.price_min!);
-    }
-    if (filters.price_max !== undefined) {
-      filtered = filtered.filter((p) => p.price <= filters.price_max!);
-    }
-  }
-
-  return filtered.slice(0, limit);
+  return [];
 }
 
 export async function getDealsProducts(limit: number = 10): Promise<Product[]> {
-  // Return mock deals for now
-  return getMockProducts('', undefined, limit);
+  return searchProducts('', { price_max: 1500 }, limit);
 }
 
 export async function getTopSellingProducts(limit: number = 10): Promise<Product[]> {
-  // Return mock top selling products for now
-  return getMockProducts('', undefined, limit);
+  return searchProducts('', {}, limit);
 }

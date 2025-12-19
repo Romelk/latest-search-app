@@ -3,10 +3,13 @@ export type IntentMode = 'CLEAR' | 'AMBIGUOUS' | 'GOAL' | 'NONE';
 export interface Entities {
   occasion?: string | null;
   participants?: string | null;
+  shopping_for?: 'self' | 'family' | 'partner' | 'gift' | null;
+  family_member_type?: 'father_brother' | 'mother_sister' | 'grandparent' | null;
   gender?: string | null;
   age_group?: string | null;
   body_type?: string | null;
   style?: string | null;
+  style_preference?: string | null;
   palette?: string | null;
   budget?: string | null;
   category?: string | null;
@@ -38,6 +41,8 @@ export interface Product {
   price: number;
   image_url: string;
   category: string;
+  raw_category?: string;
+  gender?: string;
   color: string;
   size?: string;
   fit?: string;
@@ -97,6 +102,26 @@ export interface ComposeOutfitsResponse {
   looks: Look[];
 }
 
+// Complete the Look Types
+export interface OutfitItem {
+  product_id: string;
+  role: string;  // e.g., "top", "bottom", "footwear", "accessory"
+}
+
+export interface Outfit {
+  outfit_id: string;
+  gender: string;
+  occasion: string;
+  items: OutfitItem[];
+  enriched_products?: Product[];  // Full product details after enrichment
+}
+
+export interface CompleteTheLookResponse {
+  outfits: Outfit[];                // Up to 3 complete outfits
+  complementary_items: Product[];   // Up to 4 individual complementary products
+  total_outfits: number;            // Total number of outfits found
+}
+
 export interface ExplainResultsResponse {
   explanation: string[];
 }
@@ -110,6 +135,7 @@ export interface AnalyticsEvent {
 
 export interface SearchFilters {
   category?: string;
+  gender?: string;
   price_min?: number;
   price_max?: number;
   brand?: string;
@@ -155,4 +181,84 @@ export interface ExplainResultsRequest {
     rank: number;
     matched_attributes: string[];
   }>;
+}
+
+export interface ChatMessageRequest {
+  session_id: string;
+  intent_mode: IntentMode;
+  action: 'search_complete' | 'chip_selected' | 'product_clicked' | 'conversation_start';
+  context: {
+    query?: string;
+    product_count?: number;
+    selected_chips?: Record<string, string>;
+    product?: Product;
+    conversation_history?: string;
+  };
+}
+
+export interface ChatMessageResponse {
+  message: string;
+}
+
+// Tool-based Agent Architecture Types
+export type ToolName =
+  | 'search_products'           // Standard product search
+  | 'find_matching'             // Find complementary/matching items
+  | 'refine_with_chips'         // Suggest chip-based refinement
+  | 'conversational_response';  // Pure conversation
+
+export interface ToolCall {
+  tool: ToolName;
+  parameters: Record<string, any>;
+  reasoning?: string;  // Why this tool was chosen
+}
+
+export interface SearchProductsTool {
+  query: string;
+  filters?: SearchFilters;
+  preserve_context?: boolean;  // Keep existing search context
+}
+
+export interface FindMatchingTool {
+  reference_context: {
+    category?: string;      // Original category (e.g., "shirt")
+    color?: string;         // Original color
+    style?: string;         // Original style
+    occasion?: string;      // Original occasion
+  };
+  target_category: string;  // What to search for (e.g., "pant")
+  preserve: string[];       // Attributes to preserve (e.g., ["style", "occasion"])
+  vary: string[];          // Attributes to vary/show options (e.g., ["color"])
+}
+
+export interface RefineWithChipsTool {
+  message: string;          // Conversational message
+  suggest_chips?: string[]; // Which chip categories to highlight
+}
+
+export interface ConversationalResponseTool {
+  message: string;
+  include_context?: boolean;  // Include current search context
+}
+
+export interface ToolBasedIntentResponse {
+  mode: IntentMode;
+  entities: Entities;
+  chips?: Chips;
+  tool_call?: ToolCall;  // AI's chosen tool and parameters
+}
+
+export interface ToolBasedIntentRequest {
+  session_id: string;
+  query: string;
+  conversation_history?: Array<{
+    role: 'user' | 'assistant';
+    message: string;
+  }>;
+  current_context?: {
+    query?: string;
+    products?: Product[];
+    entities?: Entities;
+    selected_chips?: Record<string, string[]>;
+  };
 }

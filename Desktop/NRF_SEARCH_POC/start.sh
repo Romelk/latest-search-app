@@ -63,8 +63,19 @@ echo "   PID: $BACKEND_PID"
 echo ""
 cd "$SCRIPT_DIR"
 
-# Wait for backend to start
+# Wait for backend to start and verify health
 sleep 3
+echo "   Checking backend health..."
+for i in {1..10}; do
+    if curl -s http://localhost:8080/health > /dev/null 2>&1; then
+        echo -e "   ${GREEN}Backend is healthy${NC}"
+        break
+    fi
+    if [ $i -eq 10 ]; then
+        echo -e "   ${YELLOW}Backend health check timeout (may still be starting)${NC}"
+    fi
+    sleep 1
+done
 
 # Start Fashion Agent Backend (Port 8001)
 echo -e "${BLUE}2️⃣  Starting Fashion Agent Backend (Port 8001)...${NC}"

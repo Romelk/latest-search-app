@@ -1,4 +1,4 @@
-import { Entities, Product, Look, SearchFilters } from '../types';
+import { Entities, Product, Look, SearchFilters, IntentMode } from '../types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -166,4 +166,120 @@ export async function logAnalyticsEvent(
       metadata,
     }),
   });
+}
+
+export async function generateChatMessage(
+  sessionId: string,
+  intentMode: IntentMode,
+  action: 'search_complete' | 'chip_selected' | 'product_clicked' | 'conversation_start',
+  context: {
+    query?: string;
+    product_count?: number;
+    selected_chips?: Record<string, string>;
+    product?: Product;
+    conversation_history?: string;
+  }
+): Promise<{ message: string }> {
+  const response = await fetch(`${API_URL}/generate-chat-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      intent_mode: intentMode,
+      action,
+      context,
+    }),
+  });
+
+  if (!response.ok) {
+    // Fallback message if API fails
+    return {
+      message: "Hi! I'm here to help you find what you're looking for. What can I help you with today?"
+    };
+  }
+
+  return response.json();
+}
+
+// Tool-based Agent API
+
+export interface ToolCall {
+  tool: 'search_products' | 'find_matching' | 'refine_with_chips' | 'conversational_response';
+  parameters: Record<string, any>;
+  reasoning?: string;
+}
+
+export interface ToolBasedIntentResponse {
+  mode: IntentMode;
+  entities: Entities;
+  chips?: any;
+  tool_call?: ToolCall;
+}
+
+export async function detectIntentWithTools(
+  sessionId: string,
+  query: string,
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; message: string }>,
+  currentContext?: {
+    query?: string;
+    products?: Product[];
+    entities?: Entities;
+    selected_chips?: Record<string, string[]>;
+  }
+): Promise<ToolBasedIntentResponse> {
+  const response = await fetch(`${API_URL}/tool-based-intent`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      query,
+      conversation_history: conversationHistory,
+      current_context: currentContext,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to detect intent with tools');
+  }
+
+  return response.json();
+}
+
+export async function executeTool(
+  sessionId: string,
+  toolCall: ToolCall,
+  context?: any
+): Promise<any> {
+  const response = await fetch(`${API_URL}/execute-tool`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      tool_call: toolCall,
+      context,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to execute tool');
+  }
+
+  return response.json();
+}
+
+// Outfit API
+
+export async function getCompleteTheLook(
+  productId: string,
+  limit: number = 4
+): Promise<import('../types').CompleteTheLookResponse> {
+  const response = await fetch(
+    `${API_URL}/outfits/complete-the-look/${productId}?limit=${limit}`
+  );
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch Complete the Look recommendations');
+  }
+
+  return response.json();
 }

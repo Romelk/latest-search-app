@@ -126,9 +126,14 @@ echo ""
 # Kill any remaining related processes (safety net)
 echo "🧹 Cleaning up any remaining processes..."
 pkill -f "nodemon.*backend" 2>/dev/null && echo "   Cleaned up backend processes" || true
+pkill -f "ts-node.*backend" 2>/dev/null && echo "   Cleaned up TypeScript backend processes" || true
 pkill -f "nodemon.*fashion-agent" 2>/dev/null && echo "   Cleaned up fashion agent processes" || true
 pkill -f "alex_service.py" 2>/dev/null && echo "   Cleaned up Python backend" || true
-pkill -f "next.*frontend" 2>/dev/null && echo "   Cleaned up frontend processes" || true
+pkill -f "next-server" 2>/dev/null && echo "   Cleaned up Next.js server" || true
+pkill -f "next dev" 2>/dev/null && echo "   Cleaned up frontend processes" || true
+
+# Also clean up any Next.js dev lock files
+rm -f "$SCRIPT_DIR/frontend/.next/dev/lock" 2>/dev/null || true
 
 echo ""
 echo "=============================================="
